@@ -4,7 +4,8 @@ import { useState } from 'react'
 import AppLayout from '@/components/AppLayout'
 import ScoreGauge from '@/components/ScoreGauge'
 import { CONTENT_TYPES, EXAMPLE_TEXTS, getAnalysisForText, type AnalysisResult } from '@/lib/mock-data'
-import { FileText, Copy, Check, ChevronDown, Sparkles, TrendingUp, AlertTriangle, CheckCircle2, ListOrdered, Zap, Loader2, Globe, Link2 } from 'lucide-react'
+import { FileText, Copy, Check, ChevronDown, Sparkles, TrendingUp, AlertTriangle, CheckCircle2, ListOrdered, Zap, Loader2, Globe, Link2, Download } from 'lucide-react'
+import { generatePDF } from '@/lib/generate-pdf'
 
 const LOADING_STEPS = [
   'Analizando claridad del mensaje...',
@@ -372,8 +373,14 @@ export default function AppPage() {
                   </div>
                 </div>
 
-                {/* Copy all */}
-                <div className="flex justify-end">
+                {/* Actions */}
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => generatePDF(result, contentType, text)}
+                    className="flex items-center gap-2 text-sm font-medium text-white bg-[#4F46E5] hover:bg-[#4338CA] transition-colors rounded-xl px-5 py-2.5 shadow-lg shadow-[#4F46E5]/20"
+                  >
+                    <Download size={14} /> Descargar PDF
+                  </button>
                   <button
                     onClick={() => handleCopy(JSON.stringify(result, null, 2), 'all')}
                     className="flex items-center gap-2 text-sm text-gray-500 hover:text-[#4F46E5] transition-colors bg-white border border-gray-200 rounded-xl px-4 py-2"
