@@ -31,6 +31,15 @@ export default function AppPage() {
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
 
+  const contentTypeMap: Record<string, string> = {
+    'Landing page': 'landing',
+    'Anuncio': 'anuncio',
+    'Email comercial': 'email',
+    'Propuesta de valor': 'propuesta',
+    'Descripción de servicio': 'servicio',
+    'Bio / presentación': 'bio',
+  }
+
   const handleAnalyze = async () => {
     if (!text.trim()) return
     setLoading(true)
@@ -39,7 +48,20 @@ export default function AppPage() {
       setLoadingStep(i)
       await new Promise(r => setTimeout(r, 400))
     }
-    setResult(getAnalysisForText(text))
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, contentType: contentTypeMap[contentType] || 'landing' }),
+      })
+      if (!res.ok) throw new Error('API error')
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setResult(data)
+    } catch {
+      // Fallback to mock if API fails
+      setResult(getAnalysisForText(text))
+    }
     setLoading(false)
   }
 
