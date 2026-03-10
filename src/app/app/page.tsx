@@ -69,6 +69,7 @@ export default function AppPage() {
     'Propuesta de valor': 'propuesta',
     'Descripción de servicio': 'servicio',
     'Bio / presentación': 'bio',
+    'E-commerce': 'ecommerce',
   }
 
   const handleAnalyze = async () => {

@@ -10,6 +10,7 @@ export interface AnalysisResult {
 
 export const CONTENT_TYPES = [
   'Landing page',
+  'E-commerce',
   'Anuncio',
   'Email comercial',
   'Propuesta de valor',
