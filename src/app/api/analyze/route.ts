@@ -14,6 +14,7 @@ const CONTENT_TYPE_LABELS: Record<string, string> = {
   "propuesta": "Propuesta de valor",
   "servicio": "Descripción de servicio",
   "bio": "Bio / presentación",
+  "youtube": "Video de YouTube (transcript)",
 };
 
 export async function POST(req: NextRequest) {

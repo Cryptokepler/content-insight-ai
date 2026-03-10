@@ -15,6 +15,7 @@ export const CONTENT_TYPES = [
   'Propuesta de valor',
   'Descripción de servicio',
   'Bio / presentación',
+  'Video de YouTube',
 ] as const
 
 export const EXAMPLE_TEXTS = [
