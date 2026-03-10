@@ -4,7 +4,7 @@ import { useState } from 'react'
 import AppLayout from '@/components/AppLayout'
 import ScoreGauge from '@/components/ScoreGauge'
 import { CONTENT_TYPES, EXAMPLE_TEXTS, getAnalysisForText, type AnalysisResult } from '@/lib/mock-data'
-import { FileText, Copy, Check, ChevronDown, Sparkles, TrendingUp, AlertTriangle, CheckCircle2, ListOrdered, Zap, Loader2 } from 'lucide-react'
+import { FileText, Copy, Check, ChevronDown, Sparkles, TrendingUp, AlertTriangle, CheckCircle2, ListOrdered, Zap, Loader2, Globe, Link2 } from 'lucide-react'
 
 const LOADING_STEPS = [
   'Analizando claridad del mensaje...',
@@ -30,6 +30,34 @@ export default function AppPage() {
   const [loadingStep, setLoadingStep] = useState(0)
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  const [inputMode, setInputMode] = useState<'text' | 'url'>('text')
+  const [url, setUrl] = useState('')
+  const [extracting, setExtracting] = useState(false)
+  const [extractedTitle, setExtractedTitle] = useState('')
+
+  const handleExtractUrl = async () => {
+    if (!url.trim()) return
+    setExtracting(true)
+    setExtractedTitle('')
+    try {
+      const res = await fetch('/api/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url.startsWith('http') ? url : `https://${url}` }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setText(data.text)
+      setExtractedTitle(data.title || '')
+      setContentType('Landing page')
+      setInputMode('text')
+      setResult(null)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error extrayendo contenido'
+      alert(msg)
+    }
+    setExtracting(false)
+  }
 
   const contentTypeMap: Record<string, string> = {
     'Landing page': 'landing',
@@ -90,6 +118,53 @@ export default function AppPage() {
         <div className="grid lg:grid-cols-5 gap-8">
           {/* Input Column */}
           <div className="lg:col-span-2 space-y-5">
+            {/* Input mode toggle */}
+            <div className="flex gap-2 bg-gray-100 rounded-xl p-1">
+              <button
+                onClick={() => setInputMode('text')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${inputMode === 'text' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <FileText size={15} /> Pegar texto
+              </button>
+              <button
+                onClick={() => setInputMode('url')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${inputMode === 'url' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <Globe size={15} /> Analizar URL
+              </button>
+            </div>
+
+            {/* URL input */}
+            {inputMode === 'url' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">URL del sitio web</label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Link2 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={url}
+                      onChange={e => setUrl(e.target.value)}
+                      placeholder="https://ejemplo.com"
+                      className="w-full bg-white border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/20 focus:border-[#4F46E5]"
+                      onKeyDown={e => e.key === 'Enter' && handleExtractUrl()}
+                    />
+                  </div>
+                  <button
+                    onClick={handleExtractUrl}
+                    disabled={extracting || !url.trim()}
+                    className="bg-[#4F46E5] text-white px-5 rounded-xl text-sm font-medium hover:bg-[#4338CA] transition-colors disabled:opacity-50 flex items-center gap-2 shrink-0"
+                  >
+                    {extracting ? <Loader2 size={16} className="animate-spin" /> : <Globe size={16} />}
+                    Extraer
+                  </button>
+                </div>
+                {extractedTitle && (
+                  <p className="text-xs text-green-600 mt-2">✓ Contenido extraído de: {extractedTitle}</p>
+                )}
+              </div>
+            )}
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Tipo de contenido</label>
               <div className="relative">
