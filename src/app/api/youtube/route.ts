@@ -14,118 +14,156 @@ function extractVideoId(url: string): string | null {
   return null;
 }
 
-async function getTranscript(videoId: string): Promise<{ title: string; transcript: string }> {
-  // First get the video page to extract title and caption tracks
-  const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/\\n/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function extractCaptionsFromXml(xml: string): string {
+  const texts = xml.match(/<text[^>]*>([\s\S]*?)<\/text>/gi);
+  if (!texts || texts.length === 0) return "";
+  return texts
+    .map(t => {
+      const content = t.replace(/<[^>]+>/g, "");
+      return decodeHtmlEntities(content);
+    })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function fetchWithUA(url: string): Promise<Response> {
+  return fetch(url, {
     headers: {
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     },
   });
+}
 
+async function getTranscript(videoId: string): Promise<{ title: string; transcript: string }> {
+  // Fetch video page
+  const pageRes = await fetchWithUA(`https://www.youtube.com/watch?v=${videoId}`);
   const html = await pageRes.text();
 
   // Extract title
   const titleMatch = html.match(/<title>([^<]*)<\/title>/);
   const title = titleMatch ? titleMatch[1].replace(" - YouTube", "").trim() : "";
 
-  // Extract captions URL from player response
-  const captionMatch = html.match(new RegExp('"captions":\\s*(\\{.*?"playerCaptionsTracklistRenderer".*?\\})\\s*,\\s*"videoDetails"', 's'));
-  
-  if (!captionMatch) {
-    // Try alternative: timedtext API directly
-    const timedTextUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=es&fmt=srv3`;
-    const ttRes = await fetch(timedTextUrl, {
-      headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" },
-    });
-    
-    if (ttRes.ok) {
-      const ttXml = await ttRes.text();
-      const texts = ttXml.match(/<text[^>]*>([\s\S]*?)<\/text>/gi);
-      if (texts && texts.length > 0) {
-        const transcript = texts
-          .map(t => t.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, '"'))
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
+  // Method 1: Extract all baseUrl from captionTracks in ytInitialPlayerResponse
+  const allBaseUrls: string[] = [];
+  const baseUrlRegex = /"baseUrl"\s*:\s*"(https?:[^"]*timedtext[^"]*)"/g;
+  let match;
+  while ((match = baseUrlRegex.exec(html)) !== null) {
+    allBaseUrls.push(match[1].replace(/\\u0026/g, "&").replace(/\\\//g, "/"));
+  }
+
+  // Try each caption URL
+  for (const captionUrl of allBaseUrls) {
+    try {
+      const capRes = await fetchWithUA(captionUrl);
+      if (!capRes.ok) continue;
+      const capXml = await capRes.text();
+      const transcript = extractCaptionsFromXml(capXml);
+      if (transcript.length > 50) {
         return { title, transcript };
       }
+    } catch {
+      continue;
     }
+  }
 
-    // Try English
-    const ttResEn = await fetch(`https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=srv3`, {
-      headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" },
-    });
-    
-    if (ttResEn.ok) {
-      const ttXml = await ttResEn.text();
-      const texts = ttXml.match(/<text[^>]*>([\s\S]*?)<\/text>/gi);
-      if (texts && texts.length > 0) {
-        const transcript = texts
-          .map(t => t.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, '"'))
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
-        return { title, transcript };
-      }
-    }
-
-    // Try to get auto-generated captions
-    const captionUrlMatch = html.match(/"captionTracks":\s*\[\s*\{[^}]*"baseUrl":\s*"([^"]+)"/);
-    if (captionUrlMatch) {
-      const captionUrl = captionUrlMatch[1].replace(/\\u0026/g, "&");
-      const capRes = await fetch(captionUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" },
+  // Method 2: Try innertube API
+  const apiKey = html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/)?.[1];
+  if (apiKey) {
+    try {
+      const innertubeRes = await fetch(`https://www.youtube.com/youtubei/v1/get_transcript?key=${apiKey}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+        body: JSON.stringify({
+          context: {
+            client: {
+              clientName: "WEB",
+              clientVersion: "2.20240101.00.00",
+              hl: "es",
+            },
+          },
+          params: btoa(`\n\x0b${videoId}`),
+        }),
       });
-      if (capRes.ok) {
-        const capXml = await capRes.text();
-        const texts = capXml.match(/<text[^>]*>([\s\S]*?)<\/text>/gi);
-        if (texts && texts.length > 0) {
-          const transcript = texts
-            .map(t => t.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, '"'))
+
+      if (innertubeRes.ok) {
+        const data = await innertubeRes.json();
+        const segments = data?.actions?.[0]?.updateEngagementPanelAction?.content?.transcriptRenderer?.body?.transcriptBodyRenderer?.cueGroups;
+        if (segments && segments.length > 0) {
+          const transcript = segments
+            .map((s: { transcriptCueGroupRenderer?: { cues?: Array<{ transcriptCueRenderer?: { cue?: { simpleText?: string } } }> } }) => 
+              s.transcriptCueGroupRenderer?.cues?.[0]?.transcriptCueRenderer?.cue?.simpleText || ""
+            )
+            .filter(Boolean)
             .join(" ")
             .replace(/\s+/g, " ")
             .trim();
+          if (transcript.length > 50) {
+            return { title, transcript };
+          }
+        }
+      }
+    } catch {
+      // continue to next method
+    }
+  }
+
+  // Method 3: Try direct timedtext URLs for common languages
+  const langs = ["es", "en", "es-419", "es-ES", "en-US", "pt", "fr"];
+  for (const lang of langs) {
+    try {
+      // Try auto-generated
+      const autoUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${lang}&kind=asr&fmt=srv3`;
+      const autoRes = await fetchWithUA(autoUrl);
+      if (autoRes.ok) {
+        const xml = await autoRes.text();
+        const transcript = extractCaptionsFromXml(xml);
+        if (transcript.length > 50) {
           return { title, transcript };
         }
       }
+      
+      // Try manual
+      const manualUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${lang}&fmt=srv3`;
+      const manualRes = await fetchWithUA(manualUrl);
+      if (manualRes.ok) {
+        const xml = await manualRes.text();
+        const transcript = extractCaptionsFromXml(xml);
+        if (transcript.length > 50) {
+          return { title, transcript };
+        }
+      }
+    } catch {
+      continue;
     }
-
-    throw new Error("No se encontraron subtítulos para este video. El video debe tener subtítulos (manuales o automáticos) habilitados.");
   }
 
-  // Parse caption tracks from player response
-  try {
-    const captionData = JSON.parse(captionMatch[1]);
-    const tracks = captionData?.playerCaptionsTracklistRenderer?.captionTracks || [];
-    
-    // Prefer Spanish, then English, then first available
-    const esTrack = tracks.find((t: { languageCode: string }) => t.languageCode === "es");
-    const enTrack = tracks.find((t: { languageCode: string }) => t.languageCode === "en");
-    const track = esTrack || enTrack || tracks[0];
-
-    if (!track?.baseUrl) {
-      throw new Error("No caption URL found");
+  // Method 4: Extract description as fallback
+  const descMatch = html.match(/"shortDescription"\s*:\s*"([^"]{50,})"/);
+  if (descMatch) {
+    const desc = decodeHtmlEntities(descMatch[1]);
+    if (desc.length > 50) {
+      return { title: title + " (descripción)", transcript: desc };
     }
-
-    const capRes = await fetch(track.baseUrl.replace(/\\u0026/g, "&"), {
-      headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" },
-    });
-    const capXml = await capRes.text();
-    
-    const texts = capXml.match(/<text[^>]*>([\s\S]*?)<\/text>/gi);
-    if (!texts || texts.length === 0) throw new Error("Empty captions");
-
-    const transcript = texts
-      .map(t => t.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, '"'))
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    return { title, transcript };
-  } catch {
-    throw new Error("No se pudieron extraer los subtítulos del video.");
   }
+
+  throw new Error("No se pudieron extraer subtítulos ni descripción de este video. Prueba copiando el texto manualmente desde YouTube.");
 }
 
 export async function POST(req: NextRequest) {
@@ -139,16 +177,14 @@ export async function POST(req: NextRequest) {
     }
 
     const { title, transcript } = await getTranscript(videoId);
-
-    // Limit to 3000 chars
     const text = transcript.length > 3000 ? transcript.substring(0, 3000) + "..." : transcript;
 
-    return NextResponse.json({ 
-      text, 
-      title, 
+    return NextResponse.json({
+      text,
+      title,
       videoId,
       charCount: text.length,
-      source: "youtube_transcript"
+      source: "youtube_transcript",
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Error extrayendo transcript";
