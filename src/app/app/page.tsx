@@ -34,11 +34,13 @@ export default function AppPage() {
   const [url, setUrl] = useState('')
   const [extracting, setExtracting] = useState(false)
   const [extractedTitle, setExtractedTitle] = useState('')
+  const [extractError, setExtractError] = useState('')
 
   const handleExtractUrl = async () => {
     if (!url.trim()) return
     setExtracting(true)
     setExtractedTitle('')
+    setExtractError('')
     try {
       const res = await fetch('/api/extract', {
         method: 'POST',
@@ -54,7 +56,7 @@ export default function AppPage() {
       setResult(null)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error extrayendo contenido'
-      alert(msg)
+      setExtractError(msg)
     }
     setExtracting(false)
   }
@@ -161,6 +163,9 @@ export default function AppPage() {
                 </div>
                 {extractedTitle && (
                   <p className="text-xs text-green-600 mt-2">✓ Contenido extraído de: {extractedTitle}</p>
+                )}
+                {extractError && (
+                  <p className="text-xs text-red-500 mt-2">⚠ {extractError}</p>
                 )}
               </div>
             )}
